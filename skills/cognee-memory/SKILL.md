@@ -67,3 +67,16 @@ Schema (introspect được qua tool, đừng tin cứng): node table `Node` ph�
 | Hits toàn dòng kiểu "X is a technique" | bảng graph edges lọt vào | thêm `"EdgeType_relationship_name"` vào `excludeTables` của memory |
 | `Không tìm thấy *.lance.db dưới …` | sai dbDir | trỏ vào thư mục chứa `databases/`, hoặc giải nén tar.gz |
 | Lệnh /<name> không mở được trong TUI | config chưa reload | `opencode service restart` hoặc mở phiên mới |
+
+
+## Recall modes (v0.4.0)
+
+Đặt `"mode"` trong registry (defaults hoặc per-memory). Mặc định `hybrid`.
+
+- `semantic` — chỉ vector. Nhanh nhất, hợp câu hỏi diễn đạt khác từ ngữ tài liệu.
+- `lexical` — chỉ BM25. Hợp tra thuật ngữ/chuẩn chính xác (ISO, tên hàm).
+- `hybrid` — vector + lexical RRF + 2-hop proxy. Cân bằng, mặc định.
+- `deep` — hybrid + graph traversal thật (`@ladybugdb/core`): thêm dòng quan hệ `a —rel→ b`.
+  Hợp câu multi-hop ("X liên quan gì đến Y"); engine thiếu thì tự về `hybrid`.
+
+Tool `cognee_graph` cho agent tự chạy Cypher multi-hop khi cần (schema xem description của tool).

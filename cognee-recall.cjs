@@ -4,20 +4,28 @@
  *
  * Usage:  node cognee-recall.cjs <memory-name> <query...>
  *
+ * RECALL MODES (cfg.mode, default "hybrid"):
+ *   semantic — vector thuần (ANN cosine trên mọi bảng cấu hình)
+ *   lexical  — BM25-lite thuần trên bảng primary (bắt term chính xác)
+ *   hybrid   — vector + lexical fuse RRF k=60 + 2-hop text-proxy (nhẹ nhất, mặc định)
+ *   deep     — hybrid + graph traversal THẬT qua @ladybugdb/core (npm i @ladybugdb/core@0.19.0);
+ *              engine thiếu → tự rơi về hybrid (không lỗi, không im-lặng-sai)
+ *
  * Registry: ~/.config/opencode/cognee-memories.json
  * {
  *   "defaults": { "topK": 4, "minScore": 0.3, "maxChars": 3500,
  *                 "tables": ["*"],              // "*" = mọi bảng có vector trong DB
  *                 "excludeTables": [],          // loại bảng gây nhiễu (tùy chọn)
+ *                 "mode": "hybrid", "graphHops": 1,
  *                 "model": "Xenova/multilingual-e5-large" },
  *   "memories": {
  *     "<name>": { "dbDir": "<thư mục databases của cognee export>",
- *                 "description": "...", "topK": 5, "minScore": 0.35, ... }
+ *                 "description": "...", "topK": 5, "minScore": 0.35, "mode": "deep", ... }
  *   }
  * }
  * (format cũ — mọi key top-level là memory — vẫn đọc được)
  *
- * Env: COGNEE_DEPS_DIR (thư mục node_modules chứa @lancedb/lancedb + @huggingface/transformers),
+ * Env: COGNEE_DEPS_DIR (node_modules chứa @lancedb/lancedb + @huggingface/transformers + @ladybugdb/core),
  *      COGNEE_MODELS_DIR, COGNEE_RECALL_DEBUG=1
  * Output: block ngữ cảnh ra stdout; diagnostics ra stderr.
  */
@@ -26,10 +34,13 @@ const os = require("node:os")
 const fs = require("node:fs")
 const { createRequire } = require("node:module")
 
+
 const HOME = os.homedir()
 const CFG_DIR = path.join(HOME, ".config", "opencode")
 const REGISTRY = path.join(CFG_DIR, "cognee-memories.json")
 const DEFAULT_TABLES = ["*"]
+const MODES = ["semantic", "lexical", "hybrid", "deep"]
+
 
 // ---------------------------------------------------------------- deps (không hardcode 1 vị trí node_modules duy nhất)
 function resolveDeps() {
@@ -43,13 +54,15 @@ function resolveDeps() {
     try {
       const req = createRequire(path.join(nm, "noop.js"))
       const deps = { lancedb: req("@lancedb/lancedb"), hf: req("@huggingface/transformers") }
-      if (process.env.COGNEE_RECALL_DEBUG) process.stderr.write(`[deps: ${nm}]\n`)
+      try { deps.graph = require("./graph.cjs") } catch { deps.graph = null }
+      if (process.env.COGNEE_RECALL_DEBUG) process.stderr.write(`[deps: ${nm}${deps.graph ? " +graph" : ""}]\n`)
       return deps
     } catch { /* thử candidate kế tiếp */ }
   }
-  return { lancedb: require("@lancedb/lancedb"), hf: require("@huggingface/transformers") }
+  return { lancedb: require("@lancedb/lancedb"), hf: require("@huggingface/transformers"), graph: require("./graph.cjs") }
 }
-const { lancedb, hf } = resolveDeps()
+const { lancedb, hf, graph: graphApi } = resolveDeps()
+
 
 // ---------------------------------------------------------------- registry
 function loadRegistry() {
@@ -66,6 +79,7 @@ function loadRegistry() {
   return { defaults: {}, memories }
 }
 
+
 // ---------------------------------------------------------------- helpers
 // trả về TẤT CẢ các *.lance.db dưới dbDir (dbDir có thể chứa nhiều dataset/export)
 function findLanceDirs(dir, depth = 0, out = []) {
@@ -80,6 +94,7 @@ function findLanceDirs(dir, depth = 0, out = []) {
   }
   return out
 }
+
 
 // payload JSON của cognee 1.6.4 bị hỏng (quote/newline không escape) — parse thủ công
 function extractField(raw, key) {
@@ -106,6 +121,7 @@ function parseHit(raw) {
   }
 }
 
+
 // cognee đổi format payload on-disk giữa các install: chuỗi JSON (lúc build cũ, có thể hỏng escape)
 // hoặc struct native (model_dump → object). Plugin phải đọc được CẢ HAI — fail mode sai-lặng-không-báo là bug.
 function parseRow(row) {
@@ -118,6 +134,7 @@ function parseRow(row) {
     text: unescapeText(String(o.text ?? "")),
   }
 }
+
 
 // ---------------------------------------------------------------- main
 async function main() {
@@ -137,6 +154,7 @@ async function main() {
   }
   if (!cfg.dbDir) { console.error(`Memory "${name}" thiếu dbDir`); process.exit(2) }
 
+
   const lanceDirs = findLanceDirs(cfg.dbDir)
   if (!lanceDirs.length) { console.error(`Không tìm thấy *.lance.db dưới ${cfg.dbDir}`); process.exit(1) }
   // chọn dataset: cfg.dataset (substring tên thư mục) — nếu không chỉ định và có >1 thì dùng cái đầu + cảnh báo
@@ -149,15 +167,18 @@ async function main() {
     process.stderr.write(`[openmemory] dbDir có ${lanceDirs.length} dataset — đang dùng ${path.basename(lanceDir)}; chọn bằng "dataset": "<tên>"\n`)
   }
 
+
   const topK = cfg.topK ?? 4
   const minScore = cfg.minScore ?? 0.3
   const maxChars = cfg.maxChars ?? 3500
+  const mode = MODES.includes(cfg.mode) ? cfg.mode : "hybrid"
   const tables = Array.isArray(cfg.tables) && cfg.tables.length ? cfg.tables : DEFAULT_TABLES
   const excludeTables = Array.isArray(cfg.excludeTables) ? cfg.excludeTables : []
   // "*" = tận dụng toàn bộ memory (mọi bảng có vector)
   const wanted = tables.includes("*") ? null : tables
   const model = cfg.model || process.env.COGNEE_E5_MODEL || "Xenova/multilingual-e5-large"
   const modelsDir = process.env.COGNEE_MODELS_DIR || path.join(HOME, ".cache", "cognee-plugin", "models")
+
 
   // 1. nhúng query (prefix "query: " khớp fastembed lúc build DB)
   hf.env.cacheDir = modelsDir
@@ -166,7 +187,8 @@ async function main() {
   const out = await embedder(`query: ${query}`, { pooling: "mean", normalize: true })
   const qv = Array.from(out.data)
 
-  // 2. vector search các bảng cấu hình
+
+  // 2. vector search các bảng cấu hình (mode lexical vẫn chạy ANN trước — dùng kết quả khi fuse/rank)
   const db = await lancedb.connect(lanceDir)
   const available = await db.tableNames()
   // primaryTables match kiểu substring (tên bảng cognee có thể khác giữa các version/dataset)
@@ -207,6 +229,7 @@ async function main() {
   }
   hits.sort((a, b) => b.sim - a.sim)
 
+
   // 3. xếp hạng hybrid: bảng primary (chunk/summary/QA) trước; secondary (entity/edge) lấp chỗ
   const primaryHits = hits.filter((h) => isPrimary(h.table))
   const secondaryHits = hits.filter((h) => !isPrimary(h.table))
@@ -214,11 +237,13 @@ async function main() {
     process.stderr.write(`[openmemory] cảnh báo: không tìm thấy bảng primary (${primaryTables.join(", ")}) trong [${available.join(", ")}] — xếp hạng theo sim thuần\n`)
   }
 
+
   // 3b. lexical pass trên bảng primary — bắt term chính xác mà vector trượt (vd "ISO/IEC 25010")
   //     fuse với vector bằng RRF (k=60). lexScan: 0 = tắt hybrid.
   const lexScan = cfg.lexScan ?? 5000
   let ordered = [...primaryHits, ...secondaryHits]
-  if (lexScan > 0) { // chỉ quét tối đa lexScan dòng/bảng — không quét DB lớn
+  const wantLex = mode !== "semantic" && lexScan > 0 // lexical/hybrid/deep đều dùng lexical pass
+  if (wantLex) { // chỉ quét tối đa lexScan dòng/bảng — không quét DB lớn
     try {
       const terms = [...new Set((query.toLowerCase().match(/[a-zà-ỹ0-9]{2,}/gi) || []).filter((t) => t.length >= 2))]
       if (terms.length) {
@@ -250,39 +275,47 @@ async function main() {
         }
         scored.sort((a, b) => b.lex - a.lex)
         const lexTop = scored.slice(0, 12)
-        const K = 60
-        const vRank = new Map(primaryHits.map((h, i) => [h.text.slice(0, 80), i]))
-        const lRank = new Map(lexTop.map((h, i) => [h.text.slice(0, 80), i]))
-        const fused = new Map()
-        for (const h of primaryHits) fused.set(h.text.slice(0, 80), { ...h, rrf: 1 / (K + (vRank.get(h.text.slice(0, 80)) ?? K + 99)) + (lRank.has(h.text.slice(0, 80)) ? 1 / (K + lRank.get(h.text.slice(0, 80))) : 0) })
-        for (const h of lexTop) {
-          const key = h.text.slice(0, 80)
-          if (!fused.has(key)) fused.set(key, { ...h, sim: null, rrf: 1 / (K + (lRank.get(key) ?? K + 99)) })
-        }
-        const primaryFused = [...fused.values()].sort((a, b) => b.rrf - a.rrf)
-        let extra = secondaryHits
-        // 2-hop proxy: entity/edge hit → tìm chunk/summary nhắc tới thực thể đó (tận dụng docs đã quét)
-        if (cfg.hop2 !== false && docs.length && secondaryHits.length) {
+
+        if (mode === "lexical") {
+          // lexical thuần: chỉ BM25 rank
+          ordered = [...lexTop, ...secondaryHits]
+        } else {
+          const K = 60
+          const vRank = new Map(primaryHits.map((h, i) => [h.text.slice(0, 80), i]))
+          const lRank = new Map(lexTop.map((h, i) => [h.text.slice(0, 80), i]))
+          const fused = new Map()
+          for (const h of primaryHits) fused.set(h.text.slice(0, 80), { ...h, rrf: 1 / (K + (vRank.get(h.text.slice(0, 80)) ?? K + 99)) + (lRank.has(h.text.slice(0, 80)) ? 1 / (K + lRank.get(h.text.slice(0, 80))) : 0) })
+          for (const h of lexTop) {
+            const key = h.text.slice(0, 80)
+            if (!fused.has(key)) fused.set(key, { ...h, sim: null, rrf: 1 / (K + (lRank.get(key) ?? K + 99)) })
+          }
+          const primaryFused = [...fused.values()].sort((a, b) => b.rrf - a.rrf)
+          let extra = secondaryHits
+          // hop terms: term để đi graph/tr-proxy — từ entity/edge hit top
           const hopTerms = []
-          for (const h of secondaryHits.slice(0, 3)) {
-            const m = h.text.toLowerCase().match(/^(.{3,80}?)\s+is\s+(a|an|the)\s/)
-            const term = (m ? m[1] : (h.table.toLowerCase().includes("entity") ? h.text : "")).trim()
-            if (term.length >= 3) hopTerms.push(term)
-          }
-          if (hopTerms.length) {
-            const hopSeen = new Set([...primaryFused, ...secondaryHits].map((h) => h.text.slice(0, 80)))
-            const hopHits = []
-            for (const d of docs) {
-              const key = d.text.slice(0, 80)
-              if (hopSeen.has(key)) continue
-              const low = d.text.toLowerCase()
-              const term = hopTerms.find((t) => low.includes(t))
-              if (term) { hopSeen.add(key); const t = d.text.length > 600 ? d.text.slice(0, 600) + "…" : d.text; hopHits.push({ ...d, text: t, sim: null, hop2: term }) }
+          if (mode === "deep" && graphApi && !cfg.hop2) {
+            // deep mode: 2-hop text-proxy TẮT — traversal thật ở bước 3c thay thế
+          } else if (cfg.hop2 !== false && docs.length && secondaryHits.length) {
+            for (const h of secondaryHits.slice(0, 3)) {
+              const m = h.text.toLowerCase().match(/^(.{3,80}?)\s+is\s+(a|an|the)\s/)
+              const term = (m ? m[1] : (h.table.toLowerCase().includes("entity") ? h.text : "")).trim()
+              if (term.length >= 3) hopTerms.push(term)
             }
-            if (hopHits.length) extra = [...hopHits.slice(0, 2), ...secondaryHits]
+            if (hopTerms.length) {
+              const hopSeen = new Set([...primaryFused, ...secondaryHits].map((h) => h.text.slice(0, 80)))
+              const hopHits = []
+              for (const d of docs) {
+                const key = d.text.slice(0, 80)
+                if (hopSeen.has(key)) continue
+                const low = d.text.toLowerCase()
+                const term = hopTerms.find((t) => low.includes(t))
+                if (term) { hopSeen.add(key); const t = d.text.length > 600 ? d.text.slice(0, 600) + "…" : d.text; hopHits.push({ ...d, text: t, sim: null, hop2: term }) }
+              }
+              if (hopHits.length) extra = [...hopHits.slice(0, 2), ...secondaryHits]
+            }
           }
+          ordered = [...primaryFused, ...extra]
         }
-        ordered = [...primaryFused, ...extra]
       }
     } catch (e) {
       process.stderr.write(`[openmemory] hybrid bỏ qua: ${e.message}\n`)
@@ -290,10 +323,57 @@ async function main() {
     }
   }
 
-  // 3. cắt theo budget + in block ngữ cảnh
+
+  // 3c. deep mode — graph traversal THẬT qua @ladybugdb/core (in-process, read-only)
+  //     Engine thiếu → rơi về hybrid bình thường (đã có 2-hop proxy phía trên), không lỗi.
+  const deepLines = []
+  if (mode === "deep" && graphApi) {
+    try {
+      const lbugFiles = graphApi.findLbugFiles(cfg.dbDir)
+      let lbugFile = lbugFiles[0]
+      if (cfg.dataset && lbugFiles.length > 1) {
+        const hit = lbugFiles.find((f) => path.basename(f).toLowerCase().includes(String(cfg.dataset).toLowerCase()))
+        if (hit) lbugFile = hit
+      }
+      if (lbugFile) {
+        const g = await graphApi.openGraph(lbugFile, { debug: !!process.env.COGNEE_RECALL_DEBUG })
+        if (g) {
+          // terms: từ entity/edge hits (nếu có) + câu query
+          const terms = []
+          for (const h of secondaryHits.slice(0, 3)) {
+            const m = h.text.toLowerCase().match(/^(.{3,80}?)\s+is\s+(a|an|the)\s/)
+            const term = (m ? m[1] : (h.table.toLowerCase().includes("entity") ? h.text : "")).trim()
+            if (term.length >= 3) terms.push(term)
+          }
+          for (const qt of query.split(/\s+/)) if (qt.length >= 6) terms.push(qt)
+          const uniqTerms = [...new Set(terms)].slice(0, 5)
+          const hops = cfg.graphHops ?? 1
+          const lines = await g.traverse(uniqTerms, { hops, perTerm: 6 })
+          deepLines.push(...lines.slice(0, 8).map((l) => ({ text: l, doc: "graph", chunk: "", table: "graph", sim: null, graph: hops })))
+          if (!deepLines.length && process.env.COGNEE_RECALL_DEBUG) {
+            process.stderr.write(`[openmemory] deep: graph mở OK nhưng 0 dòng traversal cho [${uniqTerms.join(", ")}]\n`)
+          }
+        }
+      } else if (process.env.COGNEE_RECALL_DEBUG) {
+        process.stderr.write("[openmemory] deep: không tìm thấy *.lbug dưới dbDir — rơi về hybrid\n")
+      }
+    } catch (e) {
+      process.stderr.write(`[openmemory] deep graph bỏ qua: ${e.message}\n`)
+    }
+  }
+
+
+  // 3d. cắt theo budget + in block ngữ cảnh
+  //     deep mode: graph lines chèn SAU 2 hit fused đầu — chunks là xương, graph bổ sung quan hệ
+  let finalOrdered = ordered
+  if (deepLines.length) {
+    const head = ordered.slice(0, 2)
+    const tail = ordered.slice(2)
+    finalOrdered = [...head, ...deepLines, ...tail]
+  }
   const picked = []
   let used = 0
-  for (const h of ordered) {
+  for (const h of finalOrdered) {
     if (picked.length >= topK) break
     const t = h.text.length > 1200 ? h.text.slice(0, 1200) + "…" : h.text
     if (used + t.length > maxChars && picked.length > 0) continue
@@ -301,18 +381,19 @@ async function main() {
     picked.push({ ...h, text: t })
   }
   const ms = Date.now() - t0
-  if (process.env.COGNEE_RECALL_DEBUG) process.stderr.write(`[recall ${ms}ms, ${picked.length} hits]\n`)
+  if (process.env.COGNEE_RECALL_DEBUG) process.stderr.write(`[recall ${ms}ms, mode=${mode}, ${picked.length} hits]\n`)
   if (!picked.length) {
     console.log(`(Không tìm thấy nội dung nào khớp "${query}" trong bộ nhớ ${name})`)
     return
   }
   for (const [i, h] of picked.entries()) {
-    const src = (h.doc ? `${h.doc}${h.chunk ? ` · chunk ${h.chunk}` : ""}` : h.table) + (h.hop2 ? ` [2-hop: ${h.hop2}]` : "")
-    const simLabel = h.sim == null ? "term" : `match ${(h.sim * 100).toFixed(0)}%`
+    const src = (h.doc ? `${h.doc}${h.chunk ? ` · chunk ${h.chunk}` : ""}` : h.table) + (h.hop2 ? ` [2-hop: ${h.hop2}]` : "") + (h.graph ? ` [graph ${h.graph}-hop]` : "")
+    const simLabel = h.sim == null ? (h.graph ? "graph" : "term") : `match ${(h.sim * 100).toFixed(0)}%`
     console.log(`[${i + 1}] (${simLabel} · ${src})`)
     console.log(h.text)
     console.log("")
   }
 }
+
 
 main().catch((e) => { console.error("cognee-recall lỗi:", e.message); process.exit(1) })

@@ -17,6 +17,7 @@ import { dirname, join } from "node:path"
 import { homedir } from "node:os"
 import { fileURLToPath } from "node:url"
 import { spawn } from "node:child_process"
+import { createRequire } from "node:module"
 
 const PKG = dirname(fileURLToPath(import.meta.url))
 const CFG_DIR = join(homedir(), ".config", "opencode")
@@ -40,12 +41,35 @@ function loadRegistry() {
   return { defaults: {}, memories }
 }
 
+
+// [memoryName, dbDir] → danh sách *.lbug (≤3 tầng) cho graph layer
+const findLbugPaths_ = (memories) => {
+  const out = []
+  for (const [name, m] of Object.entries(memories || {})) {
+    if (!m?.dbDir) continue
+    const files = []
+    const walk = (dir, depth) => {
+      if (depth > 3) return
+      let entries; try { entries = readdirSync(dir) } catch { return }
+      for (const e of entries) {
+        const p = join(dir, e)
+        let st; try { st = statSync(p) } catch { continue }
+        if (st.isDirectory()) walk(p, depth + 1)
+        else if (e.endsWith(".lbug")) files.push(p)
+      }
+    }
+    walk(m.dbDir, 0)
+    for (const f of files) out.push({ memory: name, path: f })
+  }
+  return out
+}
+
 function selfInstall() {
   mkdirSync(INSTALL_DIR, { recursive: true })
   mkdirSync(dirname(SKILL_DST), { recursive: true })
   copyFileSync(join(PKG, "cognee-recall.cjs"), RECALL_CLI)
   copyFileSync(join(PKG, "cognee-memory-add.cjs"), join(INSTALL_DIR, "cognee-memory-add.cjs"))
-  copyFileSync(join(PKG, "graph-server.py"), join(INSTALL_DIR, "graph-server.py"))
+  copyFileSync(join(PKG, "graph.cjs"), join(INSTALL_DIR, "graph.cjs"))
   copyFileSync(join(PKG, "skills", "cognee-memory", "SKILL.md"), SKILL_DST)
 }
 
@@ -66,6 +90,7 @@ function commandTemplate(name, description) {
 }
 
 export const setup = async (api) => {
+  const disposers = []
   try {
     selfInstall()
   } catch (e) {
@@ -136,98 +161,56 @@ export const setup = async (api) => {
     log(`đăng ký tool bỏ qua: ${e.message}`)
   }
 
-  // ---- graph layer (opt-in): có Python + ladybug + shared lib → tool cognee_graph; không có → im lặng
-  const graphServers = []
-  try {
-    const py = process.platform === "win32" ? "python" : "python3"
-    let capOk = true
-    try {
-      await new Promise((resolve, reject) => {
-        const c = spawn(py, ["-c", "import ladybug"], { stdio: "ignore", windowsHide: true })
-        c.on("exit", (code) => (code === 0 ? resolve() : reject(new Error("exit " + code))))
-        c.on("error", reject)
-        setTimeout(() => { try { c.kill() } catch {} ; reject(new Error("timeout")) }, 8000)
-      })
-    } catch { capOk = false }
+	// ---- graph layer (v0.4.0, in-process @ladybugdb/core — không Python, không sidecar, không HTTP)
+	try {
+	  const rq = createRequire(join(PKG, "noop.js"))
+	  const graphLib = rq(join(PKG, "graph.cjs"))
+	  if (graphLib.resolveCore()) {
+		api.tool.transform((tools) => {
+		  tools.add({
+			name: "cognee_graph",
+			description:
+			  "Query the knowledge GRAPH inside the embedded cognee memory (multi-hop relations between entities). "
+			  + "Schema: one node table `Node` (classify via property `type`: Entity/TextSummary/DocumentChunk/EntityType/TextDocument), "
+			  + "traverse edges WITHOUT table annotation: MATCH (a:Node)-[r]->(b:Node); edge property r.relationship_name "
+			  + "e.g. 'is_a'/'part_of'. DO NOT write [:REL] in patterns. Params bind via $name. "
+			  + "Example: MATCH (a:Node)-[r]->(b:Node) WHERE a.name CONTAINS $t RETURN a.name, r.relationship_name, b.name LIMIT 20",
+			parameters: {
+			  type: "object",
+			  properties: {
+				memory: { type: "string", description: "Registered memory name (optional — first memory's graph if omitted)" },
+				cypher: { type: "string", description: "Cypher query (see description for schema)" },
+				params: { type: "object", description: "Cypher parameters, e.g. { \"t\": \"iso/iec 12207\" }", additionalProperties: true },
+			  },
+			  required: ["cypher"],
+			},
+			async execute(args) {
+			  const lbugPaths = findLbugPaths_(memories)
+			  if (!lbugPaths.length) return "ERROR: không tìm thấy file *.lbug trong dbDir của memory đã đăng ký"
+			  let lbugFile = lbugPaths[0].path
+			  if (args.memory) {
+				const hit = lbugPaths.find((p) => p.memory === String(args.memory))
+				if (hit) lbugFile = hit.path
+				else process.stderr.write(`[openmemory] memory "${args.memory}" không có *.lbug — dùng cái đầu`)
+			  }
+			  const g = await graphLib.openGraph(lbugFile, { debug: !!process.env.COGNEE_RECALL_DEBUG })
+			  if (!g) return "ERROR: @ladybugdb/core chưa cài. Chạy: npm i @ladybugdb/core@0.19.0"
+			  const rows = await g.query(String(args.cypher), args.params || {})
+			  return JSON.stringify(rows, null, 1)
+			},
+		  })
+		  return tools
+		})
+		log("graph layer (in-process @ladybugdb/core) sẵn sàng — tool cognee_graph đã đăng ký")
+		disposers.push(async () => { try { await graphLib.closeAll() } catch {} })
+	  }
+	} catch (e) {
+	  log(`graph layer bỏ qua: ${e.message}`)
+	}
 
-    if (capOk) {
-      // tìm .lbug trong dbDir của các memory (sâu ≤3 tầng) — spawn server cho file đầu tiên
-      const findLbug = (dir, depth = 0, out = []) => {
-        if (depth > 3) return out
-        let entries; try { entries = readdirSync(dir) } catch { return out }
-        for (const e of entries) {
-          const p = join(dir, e)
-          let st; try { st = statSync(p) } catch { continue }
-          if (st.isDirectory()) findLbug(p, depth + 1, out)
-          else if (e.endsWith(".lbug")) out.push(p)
-        }
-        return out
-      }
-      const lbugFile = Object.values(memories).map((m) => m.dbDir).filter(Boolean).flatMap((d) => findLbug(d))[0]
-      if (lbugFile) {
-        const env = { ...process.env }
-        if (!env.LBUG_C_API_LIB_PATH) {
-          const dllName = process.platform === "win32" ? "lbug_shared.dll" : "liblbug.so"
-          const dll = join(homedir(), ".cache", "lbug-prebuilt", "lib", dllName)
-          if (existsSync(dll)) env.LBUG_C_API_LIB_PATH = dll
-        }
-        const srv = await new Promise((resolve) => {
-          const graphPy = existsSync(join(INSTALL_DIR, "graph-server.py")) ? join(INSTALL_DIR, "graph-server.py") : join(PKG, "graph-server.py")
-          const child = spawn(py, [graphPy, lbugFile], { stdio: ["ignore", "pipe", "pipe"], env, windowsHide: true })
-          let buf = ""
-          const timer = setTimeout(() => { try { child.kill() } catch {}; log("graph server không báo PORT trong 30s — bỏ qua graph") }, 30000)
-          child.stdout.on("data", (d) => {
-            buf += d
-            const m = buf.match(/^PORT (\d+)/m)
-            if (m) { clearTimeout(timer); resolve({ child, port: Number(m[1]) }) }
-          })
-          child.stderr.on("data", (d) => { if (String(d).includes("Traceback")) log(`graph server stderr: ${String(d).slice(0, 200)}`) })
-          child.on("exit", (code) => { clearTimeout(timer); if (code) log(`graph server thoát (code ${code}) — xem stderr`); resolve(null) })
-        })
-        if (srv) {
-          graphServers.push(srv)
-          log(`graph server sẵn sàng :${srv.port} (${lbugFile.split(/[\\/]/).pop()})`)
-          api.tool.transform((tools) => {
-            tools.add({
-              name: "cognee_graph",
-              description:
-                "Query the knowledge GRAPH inside the embedded cognee memory (multi-hop relations between entities). "
-                + "Schema: one node table `Node` (classify via property `type`: Entity/TextSummary/DocumentChunk/EntityType/TextDocument), "
-                + "traverse edges WITHOUT table annotation: MATCH (a:Node)-[r]->(b:Node); edge property r.relationship_name "
-                + "e.g. 'is_a'/'part_of'. DO NOT write [:REL] in patterns. Args: { cypher: string, params?: object }. "
-                + "Example: MATCH (a:Node)-[r]->(b:Node) WHERE a.name CONTAINS $t RETURN a.name, r.relationship_name, b.name LIMIT 20",
-              parameters: {
-                type: "object",
-                properties: {
-                  cypher: { type: "string", description: "Cypher query (see description for schema)" },
-                  params: { type: "object", description: "Cypher parameters, e.g. { \"t\": \"iso/iec 12207\" }", additionalProperties: true },
-                },
-                required: ["cypher"],
-              },
-              async execute(args) {
-                const r = await fetch(`http://127.0.0.1:${srv.port}/query`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ cypher: String(args.cypher), params: args.params || {} }),
-                  signal: AbortSignal.timeout(20000),
-                })
-                const j = await r.json()
-                if (j.error) return `ERROR: ${j.error}`
-                return JSON.stringify(j, null, 1)
-              },
-            })
-            return tools
-          })
-        }
-      }
-    }
-  } catch (e) {
-    log(`graph layer bỏ qua: ${e.message}`)
-  }
-
-  // disposer — tắt graph server khi plugin unload
+  // disposer
   return () => {
-    for (const s of graphServers) { try { s.child.kill() } catch {} }
+    for (const d of disposers) { try { d() } catch {} }
   }
 }
 

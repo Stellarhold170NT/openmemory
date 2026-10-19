@@ -39,20 +39,25 @@ DB phải build bằng embedding model `intfloat/multilingual-e5-large` — sai 
 
 Cognee đổi format payload on-disk giữa các install (chuỗi JSON — có thể hỏng escape — hoặc struct native tùy combo cognee/lancedb/pyarrow lúc build). CLI đọc được **cả hai**; nếu bảng có dòng mà 0 hit parse được → cảnh báo stderr thay vì im lặng trả "không tìm thấy".
 
-## Tận dụng 100% — tool `cognee_graph` (opt-in)
+## Tận dụng 100% — graph in-process (v0.4.0)
 
-Về lý thuyết plugin đọc cả graph layer (`*.lbug`) nếu máy có đủ đồ — **không cài cũng không sao**, mọi tính năng còn lại nguyên vẹn:
+Engine graph giờ là **package npm chính chủ** `@ladybugdb/core@0.19.0` — native binding của chính engine ladybug build DB (cùng source release, format khớp tuyệt đối, đã verify mở DB thật: 11,277 nodes / 48,382 edges đúng tuyệt đối).
 
-```powershell
-pip install ladybug==0.19.0          # engine đọc .lbug (pin theo cognee 1.6.4, ~23MB)
-# Windows wheel thiếu C-API shared lib — tải thêm (Linux/macOS wheel có sẵn):
-#   tải https://github.com/LadybugDB/ladybug/releases/download/v0.19.0/liblbug-windows-x86_64.zip
-#   giải nén lbug_shared.dll vào ~/.cache/lbug-prebuilt/lib/
-#   dll phụ thuộc OpenSSL — đặt libssl-3-x64.dll + libcrypto-3-x64.dll cạnh nó
-#   (chỉ cần đúng tên file; plugin tự set LBUG_C_API_LIB_PATH khi spawn)
-```
+Cài plugin qua npm → `optionalDependencies` tự kéo đúng binary platform (linux-x64/win32-x64/darwin-x64/darwin-arm64/linux-arm64). **Không cần Python, không cần tải DLL, không sidecar, không HTTP.**
 
-Khi đủ điều kiện, plugin setup tự spawn `graph-server.py` (HTTP 127.0.0.1, read-only, không cần cognee) và đăng ký tool `cognee_graph { cypher, params }` — Cypher trên graph thật: node table `Node` (phân loại qua property `type`), cạnh qua `MATCH (a:Node)-[r]->(b:Node)`, property `r.relationship_name`. Multi-hop đầy đủ: `MATCH (a:Node)-[r1]->(m:Node)-[r2]->(c:Node) WHERE ...`.
+- Tool `cognee_graph { memory?, cypher, params? }` xuất hiện khi engine có trong node_modules; thiếu → im lặng chạy vector/hybrid như thường.
+- `cognee-recall.cjs` có 4 **recall mode** (`"mode"` trong registry, default `hybrid`):
+
+| mode | ngữ nghĩa | phụ thuộc |
+|---|---|---|
+| `semantic` | vector thuần (ANN cosine, mọi bảng) | không |
+| `lexical` | BM25-lite thuần trên bảng primary | không |
+| `hybrid` | vector + lexical RRF k=60 + 2-hop text-proxy | không |
+| `deep` | hybrid + **graph traversal thật** 1–2 hop (dòng `a —rel→ b`) | `@ladybugdb/core` |
+
+- Thiếu engine → `deep` tự rơi về `hybrid` (không lỗi). DB mở READ-ONLY — tắt plugin khi rebuild DB để tránh tranh chấp ghi.
+- Pin version: DB build bằng cognee 1.6.4 (ladybug 0.19.0) → dùng `@ladybugdb/core@0.19.0`. Cognee nâng ladybug → đổi pin theo.
+- Schema (introspect được qua tool, đừng tin cứng): node table `Node` (property `type`), cạnh `MATCH (a:Node)-[r]->(b:Node)` — **không** ghi `:REL`; property cạnh `r.relationship_name`.
 
 ## Files
 
@@ -60,7 +65,7 @@ Khi đủ điều kiện, plugin setup tự spawn `graph-server.py` (HTTP 127.0.
 |---|---|
 | `index.ts` | Plugin v2 (`{id, setup}`) — tự cài CLI + skill, đăng ký lệnh theo registry |
 | `cognee-recall.cjs` | CLI truy xuất (e5 nhúng + LanceDB ANN + hybrid RRF + 2-hop proxy) |
-| `graph-server.py` | [opt-in] đọc `*.lbug` read-only (ladybug, không cognee) — bật tool `cognee_graph` |
+| `graph.cjs` | tầng graph in-process (`@ladybugdb/core`, read-only) — tool `cognee_graph` + mode `deep` |
 | `cognee-memory-add.cjs` | CLI đăng ký memory + sinh slash command |
 | `skills/cognee-memory/SKILL.md` | Skill dạy agent tự cài/đăng ký/debug memory |
 
