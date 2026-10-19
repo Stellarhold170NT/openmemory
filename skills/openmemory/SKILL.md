@@ -72,6 +72,8 @@ Tool `openmemory_graph` cho agent chạy Cypher multi-hop trực tiếp. Schema:
 
 ## Chẩn đoán lỗi thường gặp
 
+**Bước đầu tiên luôn là chạy `/om-doctor`** — lệnh chẩn đoán tự động kiểm tra registry, DB trên đĩa, deps, model cache và graph engine, báo `[ok]`/`[!!]` từng mục kèm gợi ý sửa. Bảng dưới cho các trường hợp cụ thể:
+
 | Triệu chứng | Nguyên nhân | Xử lý |
 |---|---|---|
 | `Cannot find package '@lancedb/lancedb'` | bản plugin < v0.4.2, hoặc depsDir sai | cập nhật plugin; kiểm tra `defaults.depsDir` trong registry trỏ tới node_modules có đủ deps |

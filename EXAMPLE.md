@@ -73,6 +73,8 @@ Nếu `/swe` chưa hiện trong phiên đang mở, hãy **mở phiên mới** (h
 
 Câu trả lời sẽ kèm theo các trích dẫn nguồn [1] [2], mỗi nguồn tương ứng với đúng đoạn nội dung trong cơ sở dữ liệu của bạn.
 
+> Có vấn đề? Chạy `/om-doctor` trong OpenCode — lệnh chẩn đoán tự động kiểm tra registry, DB, deps, model cache và graph engine, chỉ ra chính xác cái gì chưa ổn và cách sửa.
+
 ## Nếu bạn muốn tìm hiểu sâu hơn
 
 Theo mặc định, openmemory tra cứu bằng phương pháp kết hợp ngữ nghĩa và từ khóa (**hybrid**). Nếu muốn, bạn có thể bật thêm chế độ **deep** để hệ thống lần theo mối quan hệ giữa các khái niệm (multi-hop) — kiểu câu hỏi "kỹ năng X thuộc kiến thức khu vực nào, khu vực đó nằm trong giai đoạn nào" mà tìm từ khóa thuần không ra:

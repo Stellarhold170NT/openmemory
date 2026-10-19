@@ -1,5 +1,7 @@
 # openmemory
 
+[![ci](https://github.com/Stellarhold170NT/openmemory/actions/workflows/ci.yml/badge.svg)](https://github.com/Stellarhold170NT/openmemory/actions/workflows/ci.yml)
+
 Bộ nhớ dài hạn (long-term memory) nhúng cho OpenCode — DB cognee đọc trực tiếp, không server, không python. Mỗi memory = 1 DB vector + 1 slash command riêng.
 
 > **Đã có DB cognee export?** Nạp thẳng vào là chạy — openmemory đọc thẳng định dạng cognee (LanceDB + `*.lbug`), không cần build lại.
@@ -19,6 +21,7 @@ OpenCode tự tải plugin về và cài **mọi thứ** khi khởi động: CLI
 ```
 /swe <chủ đề>              # lệnh riêng cho từng memory đã đăng ký
 /mem <memory> <chủ đề>     # generic, dùng được ngay cả memory mới thêm (không cần restart)
+/om-doctor                 # chẩn đoán sức khỏe cài đặt (registry, DB, deps, model, graph)
 tool openmemory_search         # agent tự gọi: { memory, query }
 ```
 

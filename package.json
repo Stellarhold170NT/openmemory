@@ -1,6 +1,6 @@
-﻿{
+{
   "name": "openmemory",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "Embedded cognee long-term memory for OpenCode â€” slash command per memory, in-process graph (@ladybugdb/core), no server",
   "license": "MIT",
   "type": "module",
@@ -14,9 +14,13 @@
     "cognee-memory-add.cjs",
     "graph.cjs",
     "graph-query.cjs",
+    "doctor.cjs",
     "skills",
     "EXAMPLE.md"
   ],
+  "scripts": {
+    "test": "node --test test/"
+  },
   "optionalDependencies": {
     "@ladybugdb/core": "0.19.0"
   },

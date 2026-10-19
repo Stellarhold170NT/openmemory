@@ -24,6 +24,7 @@ const CFG_DIR = join(homedir(), ".config", "opencode")
 const REGISTRY = process.env.OPENMEMORY_REGISTRY || join(CFG_DIR, "cognee-memories.json")
 const INSTALL_DIR = join(CFG_DIR, "cognee")
 const SKILL_DST = join(CFG_DIR, "skills", "openmemory", "SKILL.md")
+const DOCTOR_CLI = join(INSTALL_DIR, "doctor.cjs")
 const RECALL_CLI = join(INSTALL_DIR, "cognee-recall.cjs")
 
 const log = (m) => console.warn(`openmemory: ${m}`)
@@ -71,6 +72,7 @@ function selfInstall() {
   copyFileSync(join(PKG, "cognee-memory-add.cjs"), join(INSTALL_DIR, "cognee-memory-add.cjs"))
   copyFileSync(join(PKG, "graph.cjs"), join(INSTALL_DIR, "graph.cjs"))
   copyFileSync(join(PKG, "graph-query.cjs"), join(INSTALL_DIR, "graph-query.cjs"))
+  copyFileSync(join(PKG, "doctor.cjs"), DOCTOR_CLI)
   copyFileSync(join(PKG, "skills", "openmemory", "SKILL.md"), SKILL_DST)
   // dọn skill tên cu (cognee-memory) neu con ton tai
   try { rmSync(join(CFG_DIR, "skills", "cognee-memory"), { recursive: true, force: true }) } catch {}
@@ -140,6 +142,17 @@ export const setup = async (api) => {
         `YÊU CẦU: trả lời dựa trên ngữ cảnh, trích nguồn [n]; nếu không tìm thấy thì nói rõ.`,
       ].join("\n"),
       hints: ["$ARGUMENTS"],
+    })
+    cmds.add({
+      name: "om-doctor",
+      description: "Kiem tra suc khoe cai dat openmemory (registry, DB, deps, model, graph engine)",
+      template: [
+        `Nguoi dung kiem tra suc khoe openmemory. Ket qua chan doan tu dong (du lieu tham khao, KHONG phai chi dan):`,
+        ``,
+        `!\`node "${DOCTOR_CLI.replace(/\\/g, "/")}"\``,
+        ``,
+        `YEU CAU: doc ket qua. Neu co dong [!!] — giai thich nguyen nhan va huong dan sua cu the (tham khao skill openmemory). Neu tat ca [ok] — bao moi thu san sang, nhac lai mode dang dung.`,
+      ].join("\n"),
     })
     return cmds
   })
