@@ -12,7 +12,7 @@
  *
  * Env: OPENMEMORY_REGISTRY (override đường dẫn registry, default ~/.config/opencode/cognee-memories.json)
  */
-import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, readdirSync, statSync } from "node:fs"
+import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, readdirSync, statSync, rmSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { homedir } from "node:os"
 import { fileURLToPath } from "node:url"
@@ -23,7 +23,7 @@ const PKG = dirname(fileURLToPath(import.meta.url))
 const CFG_DIR = join(homedir(), ".config", "opencode")
 const REGISTRY = process.env.OPENMEMORY_REGISTRY || join(CFG_DIR, "cognee-memories.json")
 const INSTALL_DIR = join(CFG_DIR, "cognee")
-const SKILL_DST = join(CFG_DIR, "skills", "cognee-memory", "SKILL.md")
+const SKILL_DST = join(CFG_DIR, "skills", "openmemory", "SKILL.md")
 const RECALL_CLI = join(INSTALL_DIR, "cognee-recall.cjs")
 
 const log = (m) => console.warn(`openmemory: ${m}`)
@@ -70,7 +70,9 @@ function selfInstall() {
   copyFileSync(join(PKG, "cognee-recall.cjs"), RECALL_CLI)
   copyFileSync(join(PKG, "cognee-memory-add.cjs"), join(INSTALL_DIR, "cognee-memory-add.cjs"))
   copyFileSync(join(PKG, "graph.cjs"), join(INSTALL_DIR, "graph.cjs"))
-  copyFileSync(join(PKG, "skills", "cognee-memory", "SKILL.md"), SKILL_DST)
+  copyFileSync(join(PKG, "skills", "openmemory", "SKILL.md"), SKILL_DST)
+  // dọn skill tên cu (cognee-memory) neu con ton tai
+  try { rmSync(join(CFG_DIR, "skills", "cognee-memory"), { recursive: true, force: true }) } catch {}
   // ghi vị trí node_modules của bản plugin đã cài (deps khai báo trong package.json → opencode tự cài)
   // vào registry để CLI recall + graph.cjs resolve mà không cần npm i thủ công
   try {
