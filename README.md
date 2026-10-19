@@ -16,7 +16,7 @@ OpenCode tự tải plugin về và plugin tự cài CLI recall + skill `cognee-
 npm i @lancedb/lancedb @huggingface/transformers @ladybugdb/core@0.19.0 --prefix ~/.cache/opencode
 ```
 
-Model e5 (~536MB) tự tải lần đầu recall. Tốc độ recall tùy CPU: máy thường 3–15s, máy yếu/disk mạng có thể 15–30s (thử mode `semantic` nếu lexical pass chậm).
+Model e5 (~536MB) tự tải lần đầu recall. Tốc độ trên máy thường (SSD, CPU hiện đại): warm recall ~3s, cả vòng < 5s. Máy disk mạng/CPU yếu có thể 10–30s — giảm bằng mode `semantic` hoặc hạ `lexScan`.
 
 ## Dùng
 
