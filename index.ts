@@ -94,12 +94,12 @@ export const setup = async (api) => {
   try {
     selfInstall()
   } catch (e) {
-    log(`tự cài CLI/skill lỗi: ${e.message} (vẫn tiếp tục đăng ký lệnh)`)
+    log(`tu cai CLI/skill loi: ${e.message} (van tiep tuc dang ky lenh)`)
   }
 
   const { memories } = loadRegistry()
   const names = Object.keys(memories)
-  log(`đăng ký lệnh cho ${names.length} memory: ${names.join(", ") || "(chưa có — dùng cognee-memory-add.cjs)"}`)
+  log(`dang ky lenh cho ${names.length} memory: ${names.join(", ") || "(chua co - dung cognee-memory-add.cjs)"}`)
 
   // slash command /<name> cho từng memory + /mem generic (không cần restart khi thêm memory mới)
   api.command.transform((cmds) => {
@@ -113,7 +113,7 @@ export const setup = async (api) => {
     }
     cmds.add({
       name: "mem",
-      description: "Tra cứu bộ nhớ cognee: /mem <memory-name> <chủ đề>",
+      description: "Tra cuu bo nho cognee: /mem <memory-name> <cau hoi>",
       template: [
         `Người dùng tra cứu bộ nhớ dài hạn cognee. Tham số: **$ARGUMENTS**`,
         `(cú pháp: <memory-name> <câu hỏi>)`,
@@ -158,7 +158,7 @@ export const setup = async (api) => {
       return tools
     })
   } catch (e) {
-    log(`đăng ký tool bỏ qua: ${e.message}`)
+    log(`dang ky tool bo qua: ${e.message}`)
   }
 
 	// ---- graph layer (v0.4.0, in-process @ladybugdb/core — không Python, không sidecar, không HTTP)
@@ -201,11 +201,11 @@ export const setup = async (api) => {
 		  })
 		  return tools
 		})
-		log("graph layer (in-process @ladybugdb/core) sẵn sàng — tool cognee_graph đã đăng ký")
+		log("graph layer (in-process @ladybugdb/core) san sang - tool cognee_graph da dang ky")
 		disposers.push(async () => { try { await graphLib.closeAll() } catch {} })
 	  }
 	} catch (e) {
-	  log(`graph layer bỏ qua: ${e.message}`)
+	  log(`graph layer bo qua: ${e.message}`)
 	}
 
   // disposer

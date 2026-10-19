@@ -1,6 +1,6 @@
 {
   "name": "openmemory",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Embedded cognee long-term memory for OpenCode — slash command per memory, in-process graph (@ladybugdb/core), no server",
   "license": "MIT",
   "type": "module",
