@@ -20,4 +20,4 @@ jobs:
       - name: Install deps (including per-platform native binaries)
         run: npm install --no-audit --no-fund
       - name: Run tests
-        run: node --test test/
+        run: node --test
