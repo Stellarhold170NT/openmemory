@@ -169,13 +169,17 @@ async function main() {
   // 2. vector search các bảng cấu hình
   const db = await lancedb.connect(lanceDir)
   const available = await db.tableNames()
+  // primaryTables match kiểu substring (tên bảng cognee có thể khác giữa các version/dataset)
+  const primaryTables = Array.isArray(cfg.primaryTables) ? cfg.primaryTables : ["chunk", "summary", "sessionqa"]
+  const isPrimary = (t) => primaryTables.some((p) => t.toLowerCase().includes(String(p).toLowerCase()))
+  const secondaryLimit = cfg.secondaryLimit ?? 50 // bảng non-primary (entity/edge) được pool sâu hơn — cánh cửa 1-hop vào graph
   const seen = new Set()
   const hits = []
   let rowsSeen = 0, parsedOK = 0
   let simMin = Infinity, simMax = -Infinity
   for (const table of (wanted ?? available).filter((t) => available.includes(t) && !excludeTables.includes(t))) {
     const tbl = await db.openTable(table)
-    const res = await tbl.search(qv).distanceType("cosine").limit(topK * 3).execute()
+    const res = await tbl.search(qv).distanceType("cosine").limit(isPrimary(table) ? topK * 3 : secondaryLimit).execute()
     for await (const batch of res) {
       for (const row of batch.toArray()) {
         rowsSeen++
@@ -203,10 +207,7 @@ async function main() {
   }
   hits.sort((a, b) => b.sim - a.sim)
 
-  // 3. xếp hạng hybrid: bảng primary (chunk/summary) trước; secondary (entity/edge/QA...) lấp chỗ
-  //    primaryTables match kiểu substring (tên bảng cognee có thể khác giữa các version/dataset)
-  const primaryTables = Array.isArray(cfg.primaryTables) ? cfg.primaryTables : ["chunk", "summary"]
-  const isPrimary = (t) => primaryTables.some((p) => t.toLowerCase().includes(String(p).toLowerCase()))
+  // 3. xếp hạng hybrid: bảng primary (chunk/summary/QA) trước; secondary (entity/edge) lấp chỗ
   const primaryHits = hits.filter((h) => isPrimary(h.table))
   const secondaryHits = hits.filter((h) => !isPrimary(h.table))
   if (!primaryHits.length && hits.length) {
@@ -259,7 +260,29 @@ async function main() {
           if (!fused.has(key)) fused.set(key, { ...h, sim: null, rrf: 1 / (K + (lRank.get(key) ?? K + 99)) })
         }
         const primaryFused = [...fused.values()].sort((a, b) => b.rrf - a.rrf)
-        ordered = [...primaryFused, ...secondaryHits]
+        let extra = secondaryHits
+        // 2-hop proxy: entity/edge hit → tìm chunk/summary nhắc tới thực thể đó (tận dụng docs đã quét)
+        if (cfg.hop2 !== false && docs.length && secondaryHits.length) {
+          const hopTerms = []
+          for (const h of secondaryHits.slice(0, 3)) {
+            const m = h.text.toLowerCase().match(/^(.{3,80}?)\s+is\s+(a|an|the)\s/)
+            const term = (m ? m[1] : (h.table.toLowerCase().includes("entity") ? h.text : "")).trim()
+            if (term.length >= 3) hopTerms.push(term)
+          }
+          if (hopTerms.length) {
+            const hopSeen = new Set([...primaryFused, ...secondaryHits].map((h) => h.text.slice(0, 80)))
+            const hopHits = []
+            for (const d of docs) {
+              const key = d.text.slice(0, 80)
+              if (hopSeen.has(key)) continue
+              const low = d.text.toLowerCase()
+              const term = hopTerms.find((t) => low.includes(t))
+              if (term) { hopSeen.add(key); const t = d.text.length > 600 ? d.text.slice(0, 600) + "…" : d.text; hopHits.push({ ...d, text: t, sim: null, hop2: term }) }
+            }
+            if (hopHits.length) extra = [...hopHits.slice(0, 2), ...secondaryHits]
+          }
+        }
+        ordered = [...primaryFused, ...extra]
       }
     } catch (e) {
       process.stderr.write(`[openmemory] hybrid bỏ qua: ${e.message}\n`)
@@ -284,7 +307,7 @@ async function main() {
     return
   }
   for (const [i, h] of picked.entries()) {
-    const src = h.doc ? `${h.doc}${h.chunk ? ` · chunk ${h.chunk}` : ""}` : h.table
+    const src = (h.doc ? `${h.doc}${h.chunk ? ` · chunk ${h.chunk}` : ""}` : h.table) + (h.hop2 ? ` [2-hop: ${h.hop2}]` : "")
     const simLabel = h.sim == null ? "term" : `match ${(h.sim * 100).toFixed(0)}%`
     console.log(`[${i + 1}] (${simLabel} · ${src})`)
     console.log(h.text)
