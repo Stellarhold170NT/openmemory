@@ -9,7 +9,8 @@ const partSize = Number(process.argv[4] || 90) * 1024 * 1024
 if (!file || !existsSync(file)) { console.error("file not found:", file); process.exit(1) }
 
 const name = basename(file)
-if (existsSync(outDir)) for (const f of readdirSync(outDir)) unlinkSync(join(outDir, f))
+// chỉ xóa các part CŨ của đúng file này — không đụng file khác trong outDir
+if (existsSync(outDir)) for (const f of readdirSync(outDir)) if (f.startsWith(`${name}.part`)) unlinkSync(join(outDir, f))
 mkdirSync(outDir, { recursive: true })
 
 const total = statSync(file).size
