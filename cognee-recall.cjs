@@ -171,7 +171,8 @@ async function main() {
   const available = await db.tableNames()
   const seen = new Set()
   const hits = []
-  let rowsSeen = 0
+  let rowsSeen = 0, parsedOK = 0
+  let simMin = Infinity, simMax = -Infinity
   for (const table of (wanted ?? available).filter((t) => available.includes(t) && !excludeTables.includes(t))) {
     const tbl = await db.openTable(table)
     const res = await tbl.search(qv).distanceType("cosine").limit(topK * 3).execute()
@@ -179,8 +180,11 @@ async function main() {
       for (const row of batch.toArray()) {
         rowsSeen++
         const sim = 1 - Number(row._distance)
-        if (sim < minScore) continue
+        if (sim < simMin) simMin = sim
+        if (sim > simMax) simMax = sim
         const { text, doc, chunk } = parseRow(row)
+        if (text && text.length >= 20) parsedOK++
+        if (sim < minScore) continue
         if (!text || text.length < 20) continue
         const key = text.slice(0, 80)
         if (seen.has(key)) continue
@@ -189,9 +193,13 @@ async function main() {
       }
     }
   }
-  // fail-loud: bảng có dòng nhưng 0 hit parse được → gần như chắc chắn schema payload không nhận diện
+  // fail-loud với lý do ĐÚNG: schema hỏng ≠ query lệch chủ đề
   if (rowsSeen > 0 && !hits.length) {
-    process.stderr.write(`[openmemory] CẢNH BÁO: ${rowsSeen} dòng được scan nhưng 0 hit parse được — schema payload không nhận diện được (string hay struct?). Kiểm tra COGNEE_RECALL_DEBUG=1 và report layout này.\n`)
+    if (parsedOK === 0) {
+      process.stderr.write(`[openmemory] CẢNH BÁO: ${rowsSeen} dòng được scan nhưng 0 dòng parse được text — schema payload không nhận diện được (string hay struct?). Báo kèm COGNEE_RECALL_DEBUG=1.\n`)
+    } else {
+      process.stderr.write(`[openmemory] 0 hit — schema OK (${parsedOK}/${rowsSeen} dòng parse được) nhưng sim toàn ngoài ngưỡng: max ${(Math.max(0, simMax) * 100).toFixed(0)}% < minScore ${(minScore * 100).toFixed(0)}%. Hạ minScore hoặc đổi query.\n`)
+    }
   }
   hits.sort((a, b) => b.sim - a.sim)
 

@@ -1,7 +1,7 @@
-{
+﻿{
   "name": "openmemory",
-  "version": "0.2.1",
-  "description": "Embedded cognee long-term memory for OpenCode — slash command per memory, no server, no python",
+  "version": "0.2.2",
+  "description": "Embedded cognee long-term memory for OpenCode â€” slash command per memory, no server, no python",
   "license": "MIT",
   "type": "module",
   "main": "./index.ts",
