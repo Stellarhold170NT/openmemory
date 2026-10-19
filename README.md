@@ -35,6 +35,10 @@ hoặc sửa thẳng registry `~/.config/opencode/cognee-memories.json`:
 
 DB phải build bằng embedding model `intfloat/multilingual-e5-large` — sai model là kết quả rác.
 
+## Layout payload
+
+Cognee đổi format payload on-disk giữa các install (chuỗi JSON — có thể hỏng escape — hoặc struct native tùy combo cognee/lancedb/pyarrow lúc build). CLI đọc được **cả hai**; nếu bảng có dòng mà 0 hit parse được → cảnh báo stderr thay vì im lặng trả "không tìm thấy".
+
 ## Files
 
 | File | Vai trò |

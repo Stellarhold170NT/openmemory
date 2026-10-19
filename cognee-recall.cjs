@@ -106,6 +106,19 @@ function parseHit(raw) {
   }
 }
 
+// cognee đổi format payload on-disk giữa các install: chuỗi JSON (lúc build cũ, có thể hỏng escape)
+// hoặc struct native (model_dump → object). Plugin phải đọc được CẢ HAI — fail mode sai-lặng-không-báo là bug.
+function parseRow(row) {
+  const p = row.payload
+  if (typeof p === "string") return parseHit(p)
+  const o = p || {}
+  return {
+    doc: String(o.document_name ?? o.name ?? ""),
+    chunk: o.chunk_index != null ? String(o.chunk_index) : "",
+    text: unescapeText(String(o.text ?? "")),
+  }
+}
+
 // ---------------------------------------------------------------- main
 async function main() {
   const t0 = Date.now()
@@ -158,14 +171,16 @@ async function main() {
   const available = await db.tableNames()
   const seen = new Set()
   const hits = []
+  let rowsSeen = 0
   for (const table of (wanted ?? available).filter((t) => available.includes(t) && !excludeTables.includes(t))) {
     const tbl = await db.openTable(table)
     const res = await tbl.search(qv).distanceType("cosine").limit(topK * 3).execute()
     for await (const batch of res) {
       for (const row of batch.toArray()) {
+        rowsSeen++
         const sim = 1 - Number(row._distance)
         if (sim < minScore) continue
-        const { text, doc, chunk } = parseHit(String(row.payload))
+        const { text, doc, chunk } = parseRow(row)
         if (!text || text.length < 20) continue
         const key = text.slice(0, 80)
         if (seen.has(key)) continue
@@ -173,6 +188,10 @@ async function main() {
         hits.push({ sim, text, doc, chunk, table })
       }
     }
+  }
+  // fail-loud: bảng có dòng nhưng 0 hit parse được → gần như chắc chắn schema payload không nhận diện
+  if (rowsSeen > 0 && !hits.length) {
+    process.stderr.write(`[openmemory] CẢNH BÁO: ${rowsSeen} dòng được scan nhưng 0 hit parse được — schema payload không nhận diện được (string hay struct?). Kiểm tra COGNEE_RECALL_DEBUG=1 và report layout này.\n`)
   }
   hits.sort((a, b) => b.sim - a.sim)
 
@@ -200,7 +219,7 @@ async function main() {
           const r = await tbl.query().select(["payload"]).limit(lexScan).execute()
           for await (const batch of r) {
             for (const row of batch.toArray()) {
-              const { text, doc, chunk } = parseHit(String(row.payload))
+              const { text, doc, chunk } = parseRow(row)
               if (text && text.length >= 20) docs.push({ text, doc, chunk, table })
             }
           }
