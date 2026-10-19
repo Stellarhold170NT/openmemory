@@ -10,13 +10,7 @@ Thêm 1 dòng vào `opencode.json` (global hoặc project):
 { "plugins": ["github:Stellarhold170NT/openmemory"] }
 ```
 
-OpenCode tự tải plugin về và plugin tự cài CLI recall + skill `cognee-memory` vào `~/.config/opencode/` khi khởi động. Hai deps cần cài thủ công vào `~/.cache/opencode/node_modules` (thiếu thì câu `/swe` đầu tiên sẽ báo `Cannot find module '@lancedb/lancedb'`):
-
-```bash
-npm i @lancedb/lancedb @huggingface/transformers @ladybugdb/core@0.19.0 --prefix ~/.cache/opencode
-```
-
-Model e5 (~536MB) tự tải lần đầu recall. Tốc độ trên máy thường (SSD, CPU hiện đại): warm recall ~3s, cả vòng < 5s. Máy disk mạng/CPU yếu có thể 10–30s — giảm bằng mode `semantic` hoặc hạ `lexScan`.
+OpenCode tự tải plugin về và cài **mọi thứ** khi khởi động: CLI recall + skill `cognee-memory` vào `~/.config/opencode/`, cùng toàn bộ deps (`@lancedb/lancedb`, `@huggingface/transformers`, graph engine `@ladybugdb/core` — khai báo trong package.json, không cần npm thủ công). Model e5 (~536MB) tự tải lần đầu recall. Tốc độ trên máy thường (SSD, CPU hiện đại): warm recall ~3s, cả vòng < 5s. Máy disk mạng/CPU yếu có thể 10–30s — giảm bằng mode `semantic` hoặc hạ `lexScan`.
 
 ## Dùng
 
