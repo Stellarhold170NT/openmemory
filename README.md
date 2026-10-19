@@ -29,7 +29,7 @@ node ~/.config/opencode/cognee/cognee-memory-add.cjs <name> <dbDir> [mô tả]
 hoặc sửa thẳng registry `~/.config/opencode/cognee-memories.json`:
 
 ```json
-{ "defaults": { "topK": 4, "minScore": 0.3, "maxChars": 3500, "tables": ["DocumentChunk_text", "TextSummary_text"], "model": "Xenova/multilingual-e5-large" },
+{ "defaults": { "topK": 4, "minScore": 0.3, "maxChars": 3500, "tables": ["*"], "excludeTables": [], "model": "Xenova/multilingual-e5-large" },
   "memories": { "swe": { "dbDir": "E:\\...\\databases", "description": "SWEBOK Guide v4.0" } } }
 ```
 

@@ -7,7 +7,8 @@
  * Registry: ~/.config/opencode/cognee-memories.json
  * {
  *   "defaults": { "topK": 4, "minScore": 0.3, "maxChars": 3500,
- *                 "tables": ["DocumentChunk_text", "TextSummary_text"],
+ *                 "tables": ["*"],              // "*" = mọi bảng có vector trong DB
+ *                 "excludeTables": [],          // loại bảng gây nhiễu (tùy chọn)
  *                 "model": "Xenova/multilingual-e5-large" },
  *   "memories": {
  *     "<name>": { "dbDir": "<thư mục databases của cognee export>",
@@ -28,7 +29,7 @@ const { createRequire } = require("node:module")
 const HOME = os.homedir()
 const CFG_DIR = path.join(HOME, ".config", "opencode")
 const REGISTRY = path.join(CFG_DIR, "cognee-memories.json")
-const DEFAULT_TABLES = ["DocumentChunk_text", "TextSummary_text"]
+const DEFAULT_TABLES = ["*"]
 
 // ---------------------------------------------------------------- deps (không hardcode 1 vị trí node_modules duy nhất)
 function resolveDeps() {
@@ -133,6 +134,9 @@ async function main() {
   const minScore = cfg.minScore ?? 0.3
   const maxChars = cfg.maxChars ?? 3500
   const tables = Array.isArray(cfg.tables) && cfg.tables.length ? cfg.tables : DEFAULT_TABLES
+  const excludeTables = Array.isArray(cfg.excludeTables) ? cfg.excludeTables : []
+  // "*" = tận dụng toàn bộ memory (mọi bảng có vector)
+  const wanted = tables.includes("*") ? null : tables
   const model = cfg.model || process.env.COGNEE_E5_MODEL || "Xenova/multilingual-e5-large"
   const modelsDir = process.env.COGNEE_MODELS_DIR || path.join(HOME, ".cache", "cognee-plugin", "models")
 
@@ -148,7 +152,7 @@ async function main() {
   const available = await db.tableNames()
   const seen = new Set()
   const hits = []
-  for (const table of tables.filter((t) => available.includes(t))) {
+  for (const table of (wanted ?? available).filter((t) => available.includes(t) && !excludeTables.includes(t))) {
     const tbl = await db.openTable(table)
     const res = await tbl.search(qv).distanceType("cosine").limit(topK * 3).execute()
     for await (const batch of res) {
@@ -166,13 +170,20 @@ async function main() {
   }
   hits.sort((a, b) => b.sim - a.sim)
 
+  // 3. xếp hạng: bảng nội dung chính (chunk/summary) trước, bảng còn lại (entity/edge/QA...) lấp chỗ
+  const primaryTables = Array.isArray(cfg.primaryTables) ? cfg.primaryTables : ["DocumentChunk_text", "TextSummary_text"]
+  const ordered = [
+    ...hits.filter((h) => primaryTables.includes(h.table)),
+    ...hits.filter((h) => !primaryTables.includes(h.table)),
+  ]
+
   // 3. cắt theo budget + in block ngữ cảnh
   const picked = []
   let used = 0
-  for (const h of hits) {
+  for (const h of ordered) {
     if (picked.length >= topK) break
     const t = h.text.length > 1200 ? h.text.slice(0, 1200) + "…" : h.text
-    if (used + t.length > maxChars && picked.length > 0) break
+    if (used + t.length > maxChars && picked.length > 0) continue
     used += t.length
     picked.push({ ...h, text: t })
   }

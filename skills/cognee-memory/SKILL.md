@@ -42,7 +42,7 @@ Mỗi "memory" = 1 DB + 1 slash command riêng (`/<name> <chủ đề>`).
 
 ## Tinh chỉnh / gỡ
 
-- Sửa per-memory trong registry: `topK` (4), `minScore` (0.3 — cosine sim, tăng nếu nhiễu), `maxChars` (3500), `tables` (mặc định `["DocumentChunk_text","TextSummary_text"]` — thêm `"Entity_name"` nếu muốn cả entity).
+- Sửa per-memory trong registry: `topK` (4), `minScore` (0.3 — cosine sim, tăng nếu nhiễu), `maxChars` (3500), `tables` (mặc định `["*"]` — search mọi bảng có vector; đặt danh sách cụ thể để thu hẹp), `excludeTables` (loại bảng gây nhiễu), `primaryTables` (mặc định chunk/summary — được ưu tiên trước, bảng khác lấp chỗ còn lại).
 - Gỡ: `node ~/.config/opencode/cognee/cognee-memory-add.cjs --remove <name>`.
 - Liệt kê: đọc `~/.config/opencode/cognee-memories.json`.
 
@@ -53,6 +53,6 @@ Mỗi "memory" = 1 DB + 1 slash command riêng (`/<name> <chủ đề>`).
 | `Cannot find package '@lancedb/lancedb'` | deps chưa cài / sai vị trí | bước 2; hoặc `COGNEE_DEPS_DIR` |
 | Recall chậm lần đầu (~1-2 phút) | đang tải model lần đầu | chờ 1 lần duy nhất, cache lại |
 | Match cao nhưng nội dung vô nghĩa | model nhúng không khớp DB | kiểm tra model build DB, sửa `model` trong registry |
-| Hits toàn dòng kiểu "X is a technique" | bảng graph edges lọt vào | đảm bảo `tables` chỉ chứa chunk/summary |
+| Hits toàn dòng kiểu "X is a technique" | bảng graph edges lọt vào | thêm `"EdgeType_relationship_name"` vào `excludeTables` của memory |
 | `Không tìm thấy *.lance.db dưới …` | sai dbDir | trỏ vào thư mục chứa `databases/`, hoặc giải nén tar.gz |
 | Lệnh /<name> không mở được trong TUI | config chưa reload | `opencode service restart` hoặc mở phiên mới |
