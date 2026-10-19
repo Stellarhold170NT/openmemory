@@ -43,9 +43,18 @@ const MODES = ["semantic", "lexical", "hybrid", "deep"]
 
 
 // ---------------------------------------------------------------- deps (không hardcode 1 vị trí node_modules duy nhất)
+// depsDir do plugin ghi vào registry lúc setup — chỉ tới node_modules của bản plugin cài qua github:
+function registryDepsDir() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(REGISTRY, "utf8").replace(/^\uFEFF/, ""))
+    return raw && raw.defaults && raw.defaults.depsDir
+  } catch { return null }
+}
+
 function resolveDeps() {
   const candidates = [
     process.env.COGNEE_DEPS_DIR,
+    registryDepsDir(),
     path.join(HOME, ".cache", "opencode", "node_modules"),
     path.join(__dirname, "node_modules"),
     path.join(__dirname, "..", "node_modules"),

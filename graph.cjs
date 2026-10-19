@@ -23,9 +23,18 @@ const os = require("node:os")
 const path = require("node:path")
 const fs = require("node:fs")
 
+// depsDir do plugin ghi vào registry lúc setup (chỉ tới node_modules của bản plugin đã cài qua github:)
+function registryDepsDir() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".config", "opencode", "cognee-memories.json"), "utf8").replace(/^\uFEFF/, ""))
+    return raw && raw.defaults && raw.defaults.depsDir
+  } catch { return null }
+}
+
 function resolveCore() {
   const candidates = [
     process.env.COGNEE_DEPS_DIR,
+    registryDepsDir(),
     path.join(os.homedir(), ".cache", "opencode", "node_modules"),
     path.join(__dirname, "node_modules"),
     path.join(__dirname, "..", "node_modules"),

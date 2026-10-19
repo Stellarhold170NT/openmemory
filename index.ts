@@ -71,6 +71,18 @@ function selfInstall() {
   copyFileSync(join(PKG, "cognee-memory-add.cjs"), join(INSTALL_DIR, "cognee-memory-add.cjs"))
   copyFileSync(join(PKG, "graph.cjs"), join(INSTALL_DIR, "graph.cjs"))
   copyFileSync(join(PKG, "skills", "cognee-memory", "SKILL.md"), SKILL_DST)
+  // ghi vị trí node_modules của bản plugin đã cài (deps khai báo trong package.json → opencode tự cài)
+  // vào registry để CLI recall + graph.cjs resolve mà không cần npm i thủ công
+  try {
+    const regPath = join(CFG_DIR, "cognee-memories.json")
+    let reg = {}
+    try { reg = JSON.parse(readFileSync(regPath, "utf8").replace(/^\uFEFF/, "")) } catch {}
+    if (!reg.defaults) reg.defaults = {}
+    reg.defaults.depsDir = dirname(PKG) // .../npm/<hash>/<ts>/node_modules
+    writeFileSync(regPath, JSON.stringify(reg, null, 2))
+  } catch (e) {
+    log(`ghi depsDir vao registry loi: ${e.message}`)
+  }
 }
 
 function commandTemplate(name, description) {
