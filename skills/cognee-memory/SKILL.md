@@ -42,7 +42,7 @@ Mỗi "memory" = 1 DB + 1 slash command riêng (`/<name> <chủ đề>`).
 
 ## Tinh chỉnh / gỡ
 
-- Sửa per-memory trong registry: `topK` (4), `minScore` (0.3 — cosine sim, tăng nếu nhiễu), `maxChars` (3500), `tables` (mặc định `["*"]` — search mọi bảng có vector; đặt danh sách cụ thể để thu hẹp), `excludeTables` (loại bảng gây nhiễu), `primaryTables` (mặc định chunk/summary — được ưu tiên trước, bảng khác lấp chỗ còn lại).
+- Sửa per-memory trong registry: `topK` (4), `minScore` (0.3 — cosine sim, tăng nếu nhiễu), `maxChars` (3500), `tables` (mặc định `["*"]` — search mọi bảng có vector; đặt danh sách cụ thể để thu hẹp), `excludeTables` (loại bảng gây nhiễu), `primaryTables` (mặc định `["chunk","summary"]` — match substring, được ưu tiên trước), `dataset` (chọn `*.lance.db` khi dbDir có nhiều dataset — substring tên), `lexScan` (5000 — số dòng quét lexical; 0 = tắt hybrid), `hybrid` luôn bật: lexical pass (BM25-lite) fuse với vector bằng RRF k=60 để bắt term chính xác kiểu "ISO/IEC 25010" mà vector trượt.
 - Gỡ: `node ~/.config/opencode/cognee/cognee-memory-add.cjs --remove <name>`.
 - Liệt kê: đọc `~/.config/opencode/cognee-memories.json`.
 

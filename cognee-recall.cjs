@@ -67,21 +67,18 @@ function loadRegistry() {
 }
 
 // ---------------------------------------------------------------- helpers
-function findLanceDir(dir, depth = 0) {
-  if (depth > 2) return null
+// trả về TẤT CẢ các *.lance.db dưới dbDir (dbDir có thể chứa nhiều dataset/export)
+function findLanceDirs(dir, depth = 0, out = []) {
+  if (depth > 2) return out
   let entries
-  try { entries = fs.readdirSync(dir) } catch { return null }
-  const hit = entries.find((e) => e.endsWith(".lance.db") && fs.statSync(path.join(dir, e)).isDirectory())
-  if (hit) return path.join(dir, hit)
+  try { entries = fs.readdirSync(dir) } catch { return out }
   for (const e of entries) {
     const p = path.join(dir, e)
     let st; try { st = fs.statSync(p) } catch { continue }
-    if (st.isDirectory()) {
-      const found = findLanceDir(p, depth + 1)
-      if (found) return found
-    }
+    if (st.isDirectory() && e.endsWith(".lance.db")) out.push(p)
+    else if (st.isDirectory()) findLanceDirs(p, depth + 1, out)
   }
-  return null
+  return out
 }
 
 // payload JSON của cognee 1.6.4 bị hỏng (quote/newline không escape) — parse thủ công
@@ -127,8 +124,17 @@ async function main() {
   }
   if (!cfg.dbDir) { console.error(`Memory "${name}" thiếu dbDir`); process.exit(2) }
 
-  const lanceDir = findLanceDir(cfg.dbDir)
-  if (!lanceDir) { console.error(`Không tìm thấy *.lance.db dưới ${cfg.dbDir}`); process.exit(1) }
+  const lanceDirs = findLanceDirs(cfg.dbDir)
+  if (!lanceDirs.length) { console.error(`Không tìm thấy *.lance.db dưới ${cfg.dbDir}`); process.exit(1) }
+  // chọn dataset: cfg.dataset (substring tên thư mục) — nếu không chỉ định và có >1 thì dùng cái đầu + cảnh báo
+  let lanceDir = lanceDirs[0]
+  if (cfg.dataset) {
+    const hit = lanceDirs.find((d) => path.basename(d).toLowerCase().includes(String(cfg.dataset).toLowerCase()))
+    if (!hit) process.stderr.write(`[openmemory] không có dataset khớp "${cfg.dataset}" — dùng ${path.basename(lanceDir)}\n`)
+    else lanceDir = hit
+  } else if (lanceDirs.length > 1) {
+    process.stderr.write(`[openmemory] dbDir có ${lanceDirs.length} dataset — đang dùng ${path.basename(lanceDir)}; chọn bằng "dataset": "<tên>"\n`)
+  }
 
   const topK = cfg.topK ?? 4
   const minScore = cfg.minScore ?? 0.3
@@ -170,12 +176,69 @@ async function main() {
   }
   hits.sort((a, b) => b.sim - a.sim)
 
-  // 3. xếp hạng: bảng nội dung chính (chunk/summary) trước, bảng còn lại (entity/edge/QA...) lấp chỗ
-  const primaryTables = Array.isArray(cfg.primaryTables) ? cfg.primaryTables : ["DocumentChunk_text", "TextSummary_text"]
-  const ordered = [
-    ...hits.filter((h) => primaryTables.includes(h.table)),
-    ...hits.filter((h) => !primaryTables.includes(h.table)),
-  ]
+  // 3. xếp hạng hybrid: bảng primary (chunk/summary) trước; secondary (entity/edge/QA...) lấp chỗ
+  //    primaryTables match kiểu substring (tên bảng cognee có thể khác giữa các version/dataset)
+  const primaryTables = Array.isArray(cfg.primaryTables) ? cfg.primaryTables : ["chunk", "summary"]
+  const isPrimary = (t) => primaryTables.some((p) => t.toLowerCase().includes(String(p).toLowerCase()))
+  const primaryHits = hits.filter((h) => isPrimary(h.table))
+  const secondaryHits = hits.filter((h) => !isPrimary(h.table))
+  if (!primaryHits.length && hits.length) {
+    process.stderr.write(`[openmemory] cảnh báo: không tìm thấy bảng primary (${primaryTables.join(", ")}) trong [${available.join(", ")}] — xếp hạng theo sim thuần\n`)
+  }
+
+  // 3b. lexical pass trên bảng primary — bắt term chính xác mà vector trượt (vd "ISO/IEC 25010")
+  //     fuse với vector bằng RRF (k=60). lexScan: 0 = tắt hybrid.
+  const lexScan = cfg.lexScan ?? 5000
+  let ordered = [...primaryHits, ...secondaryHits]
+  if (lexScan > 0) { // chỉ quét tối đa lexScan dòng/bảng — không quét DB lớn
+    try {
+      const terms = [...new Set((query.toLowerCase().match(/[a-zà-ỹ0-9]{2,}/gi) || []).filter((t) => t.length >= 2))]
+      if (terms.length) {
+        const docs = []
+        for (const table of available.filter((t) => isPrimary(t) && !excludeTables.includes(t))) {
+          const tbl = await db.openTable(table)
+          const r = await tbl.query().select(["payload"]).limit(lexScan).execute()
+          for await (const batch of r) {
+            for (const row of batch.toArray()) {
+              const { text, doc, chunk } = parseHit(String(row.payload))
+              if (text && text.length >= 20) docs.push({ text, doc, chunk, table })
+            }
+          }
+        }
+        const df = new Map()
+        for (const d of docs) {
+          const low = d.text.toLowerCase()
+          for (const t of terms) if (low.includes(t)) df.set(t, (df.get(t) || 0) + 1)
+        }
+        const scored = []
+        for (const d of docs) {
+          const low = d.text.toLowerCase()
+          let score = 0
+          for (const t of terms) {
+            const n = (low.match(new RegExp(t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length
+            if (n) score += Math.log(1 + docs.length / (1 + (df.get(t) || 0))) * (1 + Math.log(n))
+          }
+          if (score > 0) scored.push({ ...d, lex: score })
+        }
+        scored.sort((a, b) => b.lex - a.lex)
+        const lexTop = scored.slice(0, 12)
+        const K = 60
+        const vRank = new Map(primaryHits.map((h, i) => [h.text.slice(0, 80), i]))
+        const lRank = new Map(lexTop.map((h, i) => [h.text.slice(0, 80), i]))
+        const fused = new Map()
+        for (const h of primaryHits) fused.set(h.text.slice(0, 80), { ...h, rrf: 1 / (K + (vRank.get(h.text.slice(0, 80)) ?? K + 99)) + (lRank.has(h.text.slice(0, 80)) ? 1 / (K + lRank.get(h.text.slice(0, 80))) : 0) })
+        for (const h of lexTop) {
+          const key = h.text.slice(0, 80)
+          if (!fused.has(key)) fused.set(key, { ...h, sim: null, rrf: 1 / (K + (lRank.get(key) ?? K + 99)) })
+        }
+        const primaryFused = [...fused.values()].sort((a, b) => b.rrf - a.rrf)
+        ordered = [...primaryFused, ...secondaryHits]
+      }
+    } catch (e) {
+      process.stderr.write(`[openmemory] hybrid bỏ qua: ${e.message}\n`)
+      ordered = [...primaryHits, ...secondaryHits]
+    }
+  }
 
   // 3. cắt theo budget + in block ngữ cảnh
   const picked = []
@@ -195,7 +258,8 @@ async function main() {
   }
   for (const [i, h] of picked.entries()) {
     const src = h.doc ? `${h.doc}${h.chunk ? ` · chunk ${h.chunk}` : ""}` : h.table
-    console.log(`[${i + 1}] (match ${(h.sim * 100).toFixed(0)}% · ${src})`)
+    const simLabel = h.sim == null ? "term" : `match ${(h.sim * 100).toFixed(0)}%`
+    console.log(`[${i + 1}] (${simLabel} · ${src})`)
     console.log(h.text)
     console.log("")
   }
