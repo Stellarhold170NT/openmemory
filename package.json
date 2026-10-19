@@ -12,6 +12,7 @@
     "index.ts",
     "cognee-recall.cjs",
     "cognee-memory-add.cjs",
+    "graph-server.py",
     "skills"
   ]
 }
