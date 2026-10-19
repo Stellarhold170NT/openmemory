@@ -46,8 +46,8 @@ function scanExt(dir, ext, depth = 0, found = []) {
     const p = path.join(dir, e)
     let st
     try { st = fs.statSync(p) } catch { continue }
-    if (st.isDirectory()) scanExt(p, ext, depth + 1, found)
-    else if (e.endsWith(ext)) found.push(p)
+    if (st.isDirectory()) scanExt(p, ext, depth + 1, found) // đệ quy
+    if (e.endsWith(ext)) found.push(p) // .lance.db / .lbug có thể là thư mục (LanceDB dir) lẫn file
   }
   return found
 }

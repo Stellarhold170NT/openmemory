@@ -36,6 +36,24 @@ test("doctor: registry co memory + dbDir sai — bao dung cho", () => {
   assert.ok(out.includes("recall mode — deep"))
 })
 
+test("doctor: dbDir co .lance.db la THU MUC (LanceDB dir) — van phai do duoc", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "om-doctor-"))
+  const dbDir = path.join(dir, "databases", "abc-123")
+  fs.mkdirSync(path.join(dbDir, "b15b5f24-x.lance.db"), { recursive: true }) // .lance.db la directory
+  fs.writeFileSync(path.join(dbDir, "b15b5f24-x.lbug"), "x")
+  fs.writeFileSync(path.join(dir, "cognee-memories.json"), JSON.stringify({
+    defaults: {},
+    memories: { swe: { dbDir, description: "fake" } },
+  }))
+  const out = execFileSync(process.execPath, [DOCTOR], {
+    encoding: "utf8",
+    timeout: 60000,
+    env: { ...process.env, COGNEE_HOME: dir },
+  })
+  assert.ok(out.includes("swe: 1 dataset LanceDB"), "phai do duoc .lance.db dang la thu muc")
+  assert.ok(!out.includes("0 dataset LanceDB"))
+})
+
 test("doctor: --strict exit 1 khi co [!!]", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "om-doctor-"))
   assert.throws(() => {
