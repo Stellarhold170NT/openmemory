@@ -1,0 +1,17 @@
+{
+  "name": "openmemory",
+  "version": "0.1.0",
+  "description": "Embedded cognee long-term memory for OpenCode — slash command per memory, no server, no python",
+  "license": "MIT",
+  "type": "module",
+  "main": "./index.ts",
+  "exports": {
+    "./server": "./index.ts"
+  },
+  "files": [
+    "index.ts",
+    "cognee-recall.cjs",
+    "cognee-memory-add.cjs",
+    "skills"
+  ]
+}

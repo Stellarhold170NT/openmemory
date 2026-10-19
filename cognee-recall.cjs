@@ -53,7 +53,7 @@ const { lancedb, hf } = resolveDeps()
 // ---------------------------------------------------------------- registry
 function loadRegistry() {
   let raw = {}
-  try { raw = JSON.parse(fs.readFileSync(REGISTRY, "utf8")) } catch {}
+  try { raw = JSON.parse(fs.readFileSync(REGISTRY, "utf8").replace(/^\uFEFF/, "")) } catch {}
   // format mới: { defaults, memories } — format cũ: mọi key là 1 memory
   if (raw && typeof raw === "object" && raw.memories && typeof raw.memories === "object") {
     return { defaults: raw.defaults || {}, memories: raw.memories }

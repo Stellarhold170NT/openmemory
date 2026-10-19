@@ -24,7 +24,7 @@ const INSTALL_DIR = path.join(CFG_DIR, "cognee")
 
 function loadRegistry() {
   try {
-    const raw = JSON.parse(fs.readFileSync(REGISTRY, "utf8"))
+    const raw = JSON.parse(fs.readFileSync(REGISTRY, "utf8").replace(/^\uFEFF/, ""))
     if (raw && raw.memories) return raw
     // format cũ → chuyển đổi
     const memories = {}
