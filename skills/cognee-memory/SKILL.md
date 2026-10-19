@@ -46,6 +46,17 @@ Mỗi "memory" = 1 DB + 1 slash command riêng (`/<name> <chủ đề>`).
 - Gỡ: `node ~/.config/opencode/cognee/cognee-memory-add.cjs --remove <name>`.
 - Liệt kê: đọc `~/.config/opencode/cognee-memories.json`.
 
+## Tận dụng 100% (opt-in — graph layer)
+
+Máy nào có `python -c "import ladybug"` chạy được + C-API shared lib trong `~/.cache/lbug-prebuilt/lib/` → plugin tự spawn `graph-server.py` (HTTP local, read-only) và tool `cognee_graph { cypher, params }` xuất hiện. Thiếu đồ → im lặng chạy như thường (vector + hybrid + 2-hop).
+
+Setup Windows (Linux/macOS wheel đã kèm shared lib):
+1. `pip install ladybug==0.19.0` (pin theo cognee 1.6.4)
+2. Tải `liblbug-windows-x86_64.zip` từ release v0.19.0 của `LadybugDB/ladybug` → `lbug_shared.dll` vào `~/.cache/lbug-prebuilt/lib/`
+3. Đặt `libssl-3-x64.dll` + `libcrypto-3-x64.dll` cạnh dll đó (mọi nguồn OpenSSL 3.x, chỉ cần đúng tên)
+
+Schema (introspect được qua tool, đừng tin cứng): node table `Node` phân loại qua property `type`; cạnh query `MATCH (a:Node)-[r]->(b:Node)` — **không** ghi `:REL`; property cạnh `r.relationship_name`. Ladybug format đổi giữa versions (cognee có `needs_migration()`) — pin version theo bản build DB.
+
 ## Chẩn đoán lỗi thường gặp
 
 | Triệu chứng | Nguyên nhân | Xử lý |
