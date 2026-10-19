@@ -1,6 +1,8 @@
 # openmemory
 
-Bộ nhớ dài hạn (long-term memory) nhúng cho OpenCode — DB cogney đọc trực tiếp, không server, không python. Mỗi memory = 1 DB vector + 1 slash command riêng.
+Bộ nhớ dài hạn (long-term memory) nhúng cho OpenCode — DB cognee đọc trực tiếp, không server, không python. Mỗi memory = 1 DB vector + 1 slash command riêng.
+
+> **Đã có DB cognee export?** Nạp thẳng vào là chạy — openmemory đọc thẳng định dạng cognee (LanceDB + `*.lbug`), không cần build lại.
 
 ## Cài đặt
 
@@ -17,7 +19,7 @@ OpenCode tự tải plugin về và cài **mọi thứ** khi khởi động: CLI
 ```
 /swe <chủ đề>              # lệnh riêng cho từng memory đã đăng ký
 /mem <memory> <chủ đề>     # generic, dùng được ngay cả memory mới thêm (không cần restart)
-tool cognee_search         # agent tự gọi: { memory, query }
+tool openmemory_search         # agent tự gọi: { memory, query }
 ```
 
 ## Thêm memory mới
@@ -45,7 +47,7 @@ Engine graph giờ là **package npm chính chủ** `@ladybugdb/core@0.19.0` —
 
 Cài plugin qua npm → `optionalDependencies` tự kéo đúng binary platform (linux-x64/win32-x64/darwin-x64/darwin-arm64/linux-arm64). **Không cần Python, không cần tải DLL, không sidecar, không HTTP.**
 
-- Tool `cognee_graph { memory?, cypher, params? }` xuất hiện khi engine có trong node_modules; thiếu → im lặng chạy vector/hybrid như thường.
+- Tool `openmemory_graph { memory?, cypher, params? }` xuất hiện khi engine có trong node_modules; thiếu → im lặng chạy vector/hybrid như thường.
 - `cognee-recall.cjs` có 4 **recall mode** (`"mode"` trong registry, default `hybrid`):
 
 | mode | ngữ nghĩa | phụ thuộc |
@@ -65,9 +67,9 @@ Cài plugin qua npm → `optionalDependencies` tự kéo đúng binary platform 
 |---|---|
 | `index.ts` | Plugin v2 (`{id, setup}`) — tự cài CLI + skill, đăng ký lệnh theo registry |
 | `cognee-recall.cjs` | CLI truy xuất (e5 nhúng + LanceDB ANN + hybrid RRF + 2-hop proxy) |
-| `graph.cjs` | tầng graph in-process (`@ladybugdb/core`, read-only) — tool `cognee_graph` + mode `deep` |
+| `graph.cjs` | tầng graph in-process (`@ladybugdb/core`, read-only) — tool `openmemory_graph` + mode `deep` |
 | `cognee-memory-add.cjs` | CLI đăng ký memory + sinh slash command |
-| `skills/cognee-memory/SKILL.md` | Skill dạy agent tự cài/đăng ký/debug memory |
+| `skills/openmemory/SKILL.md` | Skill dạy agent tự cài/đăng ký/debug memory |
 
 ## Hiệu năng
 

@@ -148,7 +148,7 @@ export const setup = async (api) => {
   try {
     api.tool.transform((tools) => {
       tools.add({
-        name: "cognee_search",
+        name: "openmemory_search",
         description:
           "Search the embedded cognee long-term memory (offline vector DB). "
           + "Args: { memory: string, query: string }. Returns relevant passages with match scores.",
@@ -187,9 +187,9 @@ export const setup = async (api) => {
 	  if (hasEngine || hasLbug) {
 		api.tool.transform((tools) => {
 		  tools.add({
-			name: "cognee_graph",
+			name: "openmemory_graph",
 			description:
-			  "Query the knowledge GRAPH inside the embedded cognee memory (multi-hop relations between entities). "
+			  "Query the knowledge GRAPH inside the embedded openmemory (cognee-built memory DB): multi-hop relations between entities. "
 			  + "Schema: one node table `Node` (classify via property `type`: Entity/TextSummary/DocumentChunk/EntityType/TextDocument), "
 			  + "traverse edges WITHOUT table annotation: MATCH (a:Node)-[r]->(b:Node); edge property r.relationship_name "
 			  + "e.g. 'is_a'/'part_of'. DO NOT write [:REL] in patterns. Params bind via $name. "
@@ -234,7 +234,7 @@ export const setup = async (api) => {
 		  })
 		  return tools
 		})
-		log("graph layer (in-process @ladybugdb/core) san sang - tool cognee_graph da dang ky")
+		log("graph layer (in-process @ladybugdb/core) san sang - tool openmemory_graph da dang ky")
 		disposers.push(async () => { try { await graphLib.closeAll() } catch {} })
 	  }
 	} catch (e) {
