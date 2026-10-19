@@ -68,7 +68,7 @@ Gỡ: `node ~/.config/opencode/cognee/cognee-memory-add.cjs --remove <name>`. Li
 - `hybrid` — vector + lexical RRF + 2-hop proxy. Cân bằng.
 - `deep` — hybrid + **graph traversal thật** qua `@ladybugdb/core` (in-process, read-only): thêm dòng quan hệ `a —rel→ b` đánh dấu `[graph N-hop]`, thay thế 2-hop proxy. Hợp câu multi-hop ("X liên quan gì đến Y"); engine thiếu thì tự về hybrid. Chỉ tốn thêm ~1% thời gian so với hybrid.
 
-Tool `cognee_graph` cho agent chạy Cypher multi-hop trực tiếp. Schema: node table `Node` (phân loại qua property `type`), cạnh query `MATCH (a:Node)-[r]->(b:Node)` — KHÔNG ghi `:REL`; property cạnh `r.relationship_name`. Tool đăng ký khi engine load được trong runtime; nếu không, recall `deep` vẫn dùng graph qua process `node` con.
+Tool `cognee_graph` cho agent chạy Cypher multi-hop trực tiếp. Schema: node table `Node` (phân loại qua property `type`), cạnh query `MATCH (a:Node)-[r]->(b:Node)` — KHÔNG ghi `:REL`; property cạnh `r.relationship_name`. Tool luôn đăng ký khi memory có file `*.lbug` — runtime không load được engine in-process (vd Windows) tự fallback qua process `node` con, kết quả như nhau.
 
 ## Chẩn đoán lỗi thường gặp
 

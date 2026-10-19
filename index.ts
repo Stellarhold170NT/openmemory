@@ -70,6 +70,7 @@ function selfInstall() {
   copyFileSync(join(PKG, "cognee-recall.cjs"), RECALL_CLI)
   copyFileSync(join(PKG, "cognee-memory-add.cjs"), join(INSTALL_DIR, "cognee-memory-add.cjs"))
   copyFileSync(join(PKG, "graph.cjs"), join(INSTALL_DIR, "graph.cjs"))
+  copyFileSync(join(PKG, "graph-query.cjs"), join(INSTALL_DIR, "graph-query.cjs"))
   copyFileSync(join(PKG, "skills", "openmemory", "SKILL.md"), SKILL_DST)
   // dọn skill tên cu (cognee-memory) neu con ton tai
   try { rmSync(join(CFG_DIR, "skills", "cognee-memory"), { recursive: true, force: true }) } catch {}
@@ -176,10 +177,14 @@ export const setup = async (api) => {
   }
 
 	// ---- graph layer (v0.4.0, in-process @ladybugdb/core — không Python, không sidecar, không HTTP)
+	// v0.4.4: tool đăng ký khi CÓ engine HOẶC memory có *.lbug — runtime không load được engine
+	// (vd Windows) thì execute tự fallback qua process `node` con (graph-query.cjs)
 	try {
 	  const rq = createRequire(join(PKG, "noop.js"))
 	  const graphLib = rq(join(PKG, "graph.cjs"))
-	  if (graphLib.resolveCore()) {
+	  const hasEngine = !!graphLib.resolveCore()
+	  const hasLbug = findLbugPaths_(memories).length > 0
+	  if (hasEngine || hasLbug) {
 		api.tool.transform((tools) => {
 		  tools.add({
 			name: "cognee_graph",
@@ -207,10 +212,24 @@ export const setup = async (api) => {
 				if (hit) lbugFile = hit.path
 				else process.stderr.write(`[openmemory] memory "${args.memory}" không có *.lbug — dùng cái đầu`)
 			  }
-			  const g = await graphLib.openGraph(lbugFile, { debug: !!process.env.COGNEE_RECALL_DEBUG })
-			  if (!g) return "ERROR: @ladybugdb/core chưa cài. Chạy: npm i @ladybugdb/core@0.19.0"
-			  const rows = await g.query(String(args.cypher), args.params || {})
-			  return JSON.stringify(rows, null, 1)
+			  // fast path: in-process (Linux/macOS — engine load được trong runtime)
+			  if (graphLib.resolveCore()) {
+				const g = await graphLib.openGraph(lbugFile, { debug: !!process.env.COGNEE_RECALL_DEBUG })
+				if (g) {
+				  const rows = await g.query(String(args.cypher), args.params || {})
+				  return JSON.stringify(rows, null, 1)
+				}
+			  }
+			  // fallback: process `node` con (Windows — DLL native không init được trong runtime opencode)
+			  const { execFile } = await import("node:child_process")
+			  const { promisify } = await import("node:util")
+			  const run = promisify(execFile)
+			  const gqCli = existsSync(join(INSTALL_DIR, "graph-query.cjs")) ? join(INSTALL_DIR, "graph-query.cjs") : join(PKG, "graph-query.cjs")
+			  const r = await run("node", [gqCli, lbugFile, String(args.cypher), JSON.stringify(args.params || {})], {
+				encoding: "utf8", timeout: 30000, windowsHide: true, maxBuffer: 10 * 1024 * 1024,
+			  })
+			  if (!r.stdout.trim() && r.stderr.trim()) return "ERROR: " + r.stderr.trim().slice(0, 500)
+			  return r.stdout.trim() || "(no rows)"
 			},
 		  })
 		  return tools
