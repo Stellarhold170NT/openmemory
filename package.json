@@ -13,7 +13,8 @@
     "cognee-recall.cjs",
     "cognee-memory-add.cjs",
     "graph.cjs",
-    "skills"
+    "skills",
+    "EXAMPLE.md"
   ],
   "optionalDependencies": {
     "@ladybugdb/core": "0.19.0"
